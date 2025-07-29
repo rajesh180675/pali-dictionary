@@ -21,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS (unchanged)
+# Custom CSS
 def load_css():
     st.markdown("""
     <style>
@@ -740,7 +740,7 @@ class EnhancedPaliDictionary:
         
         return stats
 
-# Helper functions (unchanged)
+# Helper functions
 def highlight_pali_chars(text):
     """Highlight special Pali characters"""
     special_chars = 'āīūṭḍṇḷñṅṃṛḷ'
@@ -900,6 +900,7 @@ if 'dictionary' not in st.session_state:
     st.session_state.current_word = None
     st.session_state.show_stats = False
     st.session_state.filters = {}
+    st.session_state.search_mode = "All"  # Add default search mode
 
 # Load CSS
 load_css()
@@ -955,27 +956,17 @@ def main():
                 
                 st.stop()
     
-    # Sidebar (unchanged)
+    # Sidebar
     with st.sidebar:
         st.markdown("### 🔍 Search & Filter")
         
         # Search mode
-        search_mode = st.selectbox(
+        st.session_state.search_mode = st.selectbox(
             "Search Mode",
             ["All", "Exact Match", "Prefix", "Contains", "Normalized", "In Meanings", "By Root", "By Component"],
-            help="Choose how to search the dictionary"
+            help="Choose how to search the dictionary",
+            key="search_mode_select"
         )
-        
-        search_type_map = {
-            "All": "all",
-            "Exact Match": "exact",
-            "Prefix": "prefix",
-            "Contains": "contains",
-            "Normalized": "normalized",
-            "In Meanings": "meaning",
-            "By Root": "root",
-            "By Component": "component"
-        }
         
         # Filters
         st.markdown("#### Filters")
@@ -1104,6 +1095,19 @@ def main():
 
 def show_search_interface():
     """Show the main search interface"""
+    
+    # Define search type mapping
+    search_type_map = {
+        "All": "all",
+        "Exact Match": "exact",
+        "Prefix": "prefix",
+        "Contains": "contains",
+        "Normalized": "normalized",
+        "In Meanings": "meaning",
+        "By Root": "root",
+        "By Component": "component"
+    }
+    
     # Search box with autocomplete
     col1, col2 = st.columns([4, 1])
     
@@ -1146,6 +1150,8 @@ def show_search_interface():
             with st.spinner("Searching..."):
                 start_time = time.time()
                 
+                # Get search mode from session state
+                search_mode = st.session_state.get('search_mode', 'All')
                 search_type = search_type_map[search_mode]
                 results = st.session_state.dictionary.search(
                     search_query,
