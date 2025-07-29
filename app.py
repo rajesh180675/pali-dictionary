@@ -10,6 +10,8 @@ from typing import Dict, List, Tuple, Optional
 import unicodedata
 import time
 import os
+import py7zr  # Added for 7z support
+import tempfile  # Added for temporary file handling
 
 # Page configuration
 st.set_page_config(
@@ -19,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS (unchanged)
 def load_css():
     st.markdown("""
     <style>
@@ -268,7 +270,7 @@ def load_css():
     </style>
     """, unsafe_allow_html=True)
 
-# Enhanced Dictionary class
+# Enhanced Dictionary class with 7z support
 class EnhancedPaliDictionary:
     def __init__(self):
         self.data = None
@@ -279,13 +281,58 @@ class EnhancedPaliDictionary:
         self.loaded = False
         
     @st.cache_data(ttl=3600, show_spinner=False)
+    def load_dictionary_from_7z(_self, archive_path):
+        """Load dictionary from 7z file with caching"""
+        try:
+            temp_dir = tempfile.mkdtemp()
+            extracted_path = None
+            
+            # Extract 7z file
+            with py7zr.SevenZipFile(archive_path, mode='r') as archive:
+                # List all files in the archive
+                file_list = archive.getnames()
+                
+                # Find JSON file in archive
+                json_files = [f for f in file_list if f.endswith('.json')]
+                
+                if not json_files:
+                    raise ValueError("No JSON file found in 7z archive")
+                
+                # Extract the first JSON file found
+                json_file = json_files[0]
+                archive.extract(path=temp_dir, targets=[json_file])
+                extracted_path = os.path.join(temp_dir, json_file)
+            
+            # Load JSON data
+            with open(extracted_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Clean up temporary files
+            if os.path.exists(extracted_path):
+                os.remove(extracted_path)
+            if os.path.exists(temp_dir):
+                os.rmdir(temp_dir)
+            
+            return data
+            
+        except Exception as e:
+            # Clean up on error
+            if 'temp_dir' in locals() and temp_dir and os.path.exists(temp_dir):
+                import shutil
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            raise e
+        
+    @st.cache_data(ttl=3600, show_spinner=False)
     def load_dictionary(_self, file_path):
-        """Load dictionary with caching"""
+        """Load dictionary with caching - supports both JSON and 7z files"""
         try:
             # Check if file exists
             if not os.path.exists(file_path):
                 # Try alternative paths
                 alt_paths = [
+                    "data/pali_dictionary.7z",
+                    "pali_dictionary.7z",
+                    "data/pali_dictionary.json",
                     "pali_dictionary.json",
                     "./data/pali_dictionary.json",
                     "../pali_dictionary.json"
@@ -297,9 +344,16 @@ class EnhancedPaliDictionary:
                 else:
                     raise FileNotFoundError(f"Dictionary file not found: {file_path}")
             
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return data
+            # Check file extension and load accordingly
+            if file_path.endswith('.7z'):
+                # Load from 7z archive
+                return _self.load_dictionary_from_7z(file_path)
+            else:
+                # Load from JSON file (existing functionality)
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return data
+                
         except Exception as e:
             st.error(f"Error loading dictionary: {str(e)}")
             return None
@@ -686,7 +740,7 @@ class EnhancedPaliDictionary:
         
         return stats
 
-# Helper functions
+# Helper functions (unchanged)
 def highlight_pali_chars(text):
     """Highlight special Pali characters"""
     special_chars = 'āīūṭḍṇḷñṅṃṛḷ'
@@ -867,33 +921,41 @@ def main():
     # Initialize dictionary if not loaded
     if not st.session_state.dictionary.loaded:
         with st.spinner("🔄 Initializing dictionary... This may take a moment for large files."):
-            dict_path = "data/pali_dictionary.json"  # Update this path as needed
+            dict_path = "data/pali_dictionary.7z"  # Updated to use 7z file
             
             if st.session_state.dictionary.initialize(dict_path):
                 st.success("✅ Dictionary loaded successfully!")
                 st.balloons()
             else:
                 st.error("❌ Failed to load dictionary. Please check the file path.")
-                st.info("Expected file location: `data/pali_dictionary.json`")
+                st.info("Expected file location: `data/pali_dictionary.7z` or `data/pali_dictionary.json`")
                 
-                # File uploader as fallback
-                uploaded_file = st.file_uploader("Or upload your dictionary JSON file:", type=['json'])
+                # File uploader as fallback - now supports 7z
+                uploaded_file = st.file_uploader("Or upload your dictionary file:", type=['json', '7z'])
                 if uploaded_file is not None:
                     try:
-                        data = json.load(uploaded_file)
-                        # Save to temporary file
-                        with open("temp_dict.json", "w", encoding='utf-8') as f:
-                            json.dump(data, f)
+                        # Save uploaded file with correct extension
+                        file_extension = '.7z' if uploaded_file.name.endswith('.7z') else '.json'
+                        temp_filename = f"temp_dict{file_extension}"
                         
-                        if st.session_state.dictionary.initialize("temp_dict.json"):
+                        with open(temp_filename, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        
+                        if st.session_state.dictionary.initialize(temp_filename):
                             st.success("✅ Dictionary loaded from uploaded file!")
+                            # Clean up temp file
+                            if os.path.exists(temp_filename):
+                                os.remove(temp_filename)
                             st.rerun()
                     except Exception as e:
                         st.error(f"Error loading uploaded file: {str(e)}")
+                        # Clean up temp file on error
+                        if 'temp_filename' in locals() and os.path.exists(temp_filename):
+                            os.remove(temp_filename)
                 
                 st.stop()
     
-    # Sidebar
+    # Sidebar (unchanged)
     with st.sidebar:
         st.markdown("### 🔍 Search & Filter")
         
